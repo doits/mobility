@@ -36,20 +36,31 @@ model class is generated.
       private
 
       def define_fallthrough_accessors(*names)
-        method_name_regex = /\A(#{names.join('|')})_([a-z]{2}(_[a-z]{2})?)(=?|\??)\z/.freeze
+        method_name_regex = /\A(?<method_base>(?<attribute>#{names.join('|')})_(?<locale>[a-z]{2})(_(?<suffix>[a-z]{2}))?)(?<operator>=|\?)?\z/.freeze
+
+        klass = self
 
         define_method :method_missing do |method_name, *args, &block|
-          if method_name =~ method_name_regex
-            attribute_method = "#{$1}#{$4}"
-            locale, suffix = $2.split('_')
-            locale = "#{locale}-#{suffix.upcase}" if suffix
-            if $4 == '=' # writer
-              kwargs = args[1].is_a?(Hash) ? args[1] : {}
-              public_send(attribute_method, args[0], **kwargs, locale: locale)
-            else         # reader
-              kwargs = args[0].is_a?(Hash) ? args[0] : {}
-              public_send(attribute_method, **kwargs, locale: locale)
+          if matches = method_name.match(method_name_regex)
+            attribute = matches[:attribute]
+            method_base = matches[:method_base]
+
+            locale = matches[:locale]
+            locale = "#{locale}-#{matches[:suffix].upcase}" if matches[:suffix]
+
+            klass.define_method method_base do |*args, **options|
+              public_send(attribute, *args, **options, locale: locale)
             end
+
+            klass.define_method "#{method_base}?" do |*args, **options|
+              public_send("#{attribute}?", *args, **options, locale: locale)
+            end
+
+            klass.define_method "#{method_base}=" do |*args, **options|
+              public_send("#{attribute}=", *args, **options, locale: locale)
+            end
+
+            public_send(method_name, *args, &block)
           else
             super(method_name, *args, &block)
           end
